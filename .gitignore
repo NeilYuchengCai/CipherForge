@@ -1,0 +1,33 @@
+# Build artifacts
+build/
+dist/
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual env
+.venv/
+
+# Coverage / test artifacts
+.coverage
+.coverage.*
+*.dat
+coverage.xml
+coverage_report/
+cf_cov_final.dat
+cov_final*
+
+# Logs
+*.log
+uvicorn.log
+
+# Local memory / workspace data (do not publish)
+.workbuddy/
+
+# Test image artifacts
+*.png
+
+# Misc
+.pkg_src/
