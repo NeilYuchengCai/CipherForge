@@ -59,9 +59,10 @@ app = FastAPI(title="CipherForge", description="桌面级密码学工具箱 — 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=["http://127.0.0.1:8000", "http://localhost:8000"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 # 静态文件服务 - 挂载到 /static
@@ -203,7 +204,7 @@ async def api_decrypt(req: DecryptRequest):
         return {"success": True, "plaintext": pt.decode("utf-8")}
     except Exception as exc:
         logger.error("decrypt 失败: %s", exc)
-        raise HTTPException(status_code=400, detail=f"解密失败: {exc}")
+        raise HTTPException(status_code=400, detail="解密失败")
 
 
 @app.post("/api/stream-encrypt")
@@ -412,14 +413,20 @@ async def health():
 #  启动入口
 # ======================================================================
 def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
-    """启动服务器。"""
+    """启动服务器，支持自动重启。"""
     logger.info("启动 CipherForge Web 服务: http://%s:%d", host, port)
-    try:
-        import uvicorn
-        uvicorn.run("server:app", host=host, port=port, log_level="info", reload=False)
-    except ImportError:
-        logger.error("uvicorn 未安装，请执行: pip install uvicorn")
-        raise
+    while True:
+        try:
+            import uvicorn
+            uvicorn.run("server:app", host=host, port=port, log_level="info", reload=False)
+        except KeyboardInterrupt:
+            logger.info("收到中断信号，退出服务")
+            break
+        except Exception as exc:
+            logger.error("服务崩溃: %s，5秒后重启...", exc)
+            import time
+            time.sleep(5)
+            continue
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -432,19 +439,26 @@ def main(argv: list[str] | None = None) -> int:
             ip = s.getsockname()[0]
             s.close()
             return ip
-        except:
+        except Exception:
             return '127.0.0.1'
 
     ap = argparse.ArgumentParser(prog="server.py", description="CipherForge Web 服务")
     ap.add_argument("--host", default=DEFAULT_HOST, help=f"监听地址 (默认 {DEFAULT_HOST})")
     ap.add_argument("--port", "-p", type=int, default=DEFAULT_PORT, help=f"端口 (默认 {DEFAULT_PORT})")
+    ap.add_argument("--lan", action="store_true", help="启用局域网访问模式 (绑定 0.0.0.0)")
     args = ap.parse_args(argv)
+
+    # LAN 模式自动设置为 0.0.0.0
+    if args.lan:
+        args.host = "0.0.0.0"
 
     # Print LAN IP when starting in LAN mode
     if args.host == "0.0.0.0":
         ip = get_local_ip()
         print(f"Your LAN IP address: {ip}")
-        print(f"Access from other devices: http://{ip}:8000")
+        print(f"Access from other devices: http://{ip}:{args.port}")
+        print()
+        print("⚠️  安全警告: LAN 模式无认证保护，仅限可信网络使用！")
         print()
     run_server(host=args.host, port=args.port)
     return 0

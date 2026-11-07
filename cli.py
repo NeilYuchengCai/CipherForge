@@ -5,26 +5,31 @@ CipherForge 命令行接口（CLI）
 
 覆盖全部能力的非交互式入口，便于脚本化与自动化。
 
+安全注意：使用 --password 参数时密码会出现在进程列表和 shell 历史中。
+推荐使用 --password-stdin 从标准输入读取密码以避免泄露。
+
 示例
 ----
+  python cli.py encrypt --algo AES-256-GCM --password-stdin < password.txt
   python cli.py encrypt --algo AES-256-GCM --password xxx --in f.txt --out f.enc
   python cli.py decrypt --algo AES-256-GCM --password xxx --in f.enc --out f.txt
   python cli.py hash --algo SHA-256 --in f.txt
   python cli.py passgen --length 24
   python cli.py shamir-split --threshold 3 --total 5 --in secret.bin --out-dir shares/
   python cli.py shamir-combine --shares shares/*.txt --out secret.bin
-  python cli.py stego-hide --carrier pic.png --out hidden.png --password xxx --in data.bin
-  python cli.py stego-reveal --in hidden.png --password xxx --out data.bin
+  python cli.py stego-hide --carrier pic.png --out hidden.png --password-stdin < password.txt --in data.bin
+  python cli.py stego-reveal --in hidden.png --password-stdin < password.txt --out data.bin
   python cli.py pq-keygen --algo ML-DSA-87 --out alice
   python cli.py pq-sign --algo ML-DSA-87 --secret-key alice.sk --in doc.txt --out doc.sig --days 30
   python cli.py pq-verify --algo ML-DSA-87 --public-key alice.pk --in doc.txt --bundle doc.sig
-  python cli.py cascade-encrypt --layers AES-256-GCM,ChaCha20-Poly1305 --password xxx --in f.txt --out f.csc
+  python cli.py cascade-encrypt --layers AES-256-GCM,ChaCha20-Poly1305 --password-stdin < password.txt --in f.txt --out f.csc
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import getpass
 import glob
 import os
 import sys
@@ -56,32 +61,41 @@ def _write(path: str, data: bytes) -> None:
         fh.write(data)
 
 
+def _resolve_password(args) -> str:
+    """从 --password 或 --password-stdin 解析密码。"""
+    if getattr(args, 'password_stdin', False):
+        return getpass.getpass("Enter password: ")
+    return args.password
+
+
 # ----------------------------------------------------------------------
 #  子命令实现
 # ----------------------------------------------------------------------
 def _cmd_symmetric(args, encrypt: bool) -> None:
     cipher = SymmetricCipher(args.algo)
+    password = _resolve_password(args)
     if encrypt:
         data = _read(args.infile)
-        out = cipher.encrypt(data, password=args.password, aad=args.aad.encode() if args.aad else b"")
+        out = cipher.encrypt(data, password=password, aad=args.aad.encode() if args.aad else b"")
         _write(args.outfile, out)
         print(f"已加密 -> {args.outfile} ({len(out)} 字节)")
     else:
         blob = _read(args.infile)
-        out = cipher.decrypt(blob, password=args.password, aad=args.aad.encode() if args.aad else b"")
+        out = cipher.decrypt(blob, password=password, aad=args.aad.encode() if args.aad else b"")
         _write(args.outfile, out)
         print(f"已解密 -> {args.outfile} ({len(out)} 字节)")
 
 
 def _cmd_stream(args, encrypt: bool) -> None:
     sc = StreamCipher(algorithm=args.algo)
+    password = _resolve_password(args)
     if encrypt:
         with open(args.infile, "rb") as src, open(args.outfile, "wb") as dst:
-            sc.encrypt_stream(src, dst, password=args.password)
+            sc.encrypt_stream(src, dst, password=password)
         print(f"已流式加密 -> {args.outfile}")
     else:
         with open(args.infile, "rb") as src, open(args.outfile, "wb") as dst:
-            sc.decrypt_stream(src, dst, password=args.password)
+            sc.decrypt_stream(src, dst, password=password)
         print(f"已流式解密 -> {args.outfile}")
 
 
@@ -137,13 +151,15 @@ def _cmd_shamir_combine(args) -> None:
 def _cmd_stego_hide(args) -> None:
     lsb = LSBSteganography(bit_depth=args.bit_depth)
     data = _read(args.infile)
-    n = lsb.hide(data, args.carrier, args.outfile, password=args.password)
+    password = _resolve_password(args)
+    n = lsb.hide(data, args.carrier, args.outfile, password=password)
     print(f"已隐藏 {n} 字节载荷 -> {args.outfile}")
 
 
 def _cmd_stego_reveal(args) -> None:
     lsb = LSBSteganography(bit_depth=args.bit_depth)
-    data = lsb.reveal(args.infile, password=args.password, bit_depth=args.bit_depth)
+    password = _resolve_password(args)
+    data = lsb.reveal(args.infile, password=password, bit_depth=args.bit_depth)
     _write(args.outfile, data)
     print(f"已提取 {len(data)} 字节载荷 -> {args.outfile}")
 
@@ -178,14 +194,15 @@ def _cmd_pq_verify(args) -> None:
 def _cmd_cascade(args, encrypt: bool) -> None:
     layers = [a.strip() for a in args.layers.split(",") if a.strip()]
     eng = CascadeEngine(layers)
+    password = _resolve_password(args)
     if encrypt:
         data = _read(args.infile)
-        out = eng.encrypt(data, password=args.password)
+        out = eng.encrypt(data, password=password)
         _write(args.outfile, out)
         print(f"已级联加密（{len(layers)} 层）-> {args.outfile}")
     else:
         blob = _read(args.infile)
-        out = eng.decrypt(blob, password=args.password)
+        out = eng.decrypt(blob, password=password)
         _write(args.outfile, out)
         print(f"已级联解密 -> {args.outfile}")
 
@@ -203,24 +220,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("encrypt"); add_io(sp)
     sp.add_argument("--algo", required=True, choices=SUPPORTED_SYMMETRIC)
-    sp.add_argument("--password", required=True)
+    pw_group = sp.add_mutually_exclusive_group(required=True)
+    pw_group.add_argument("--password", default=None, help="密码（会出现在进程列表）")
+    pw_group.add_argument("--password-stdin", action="store_true", help="从终端读取密码（推荐）")
     sp.add_argument("--aad", default="")
     sp.set_defaults(func=lambda a: _cmd_symmetric(a, True))
 
     sp = sub.add_parser("decrypt"); add_io(sp)
     sp.add_argument("--algo", required=True, choices=SUPPORTED_SYMMETRIC)
-    sp.add_argument("--password", required=True)
+    pw_group = sp.add_mutually_exclusive_group(required=True)
+    pw_group.add_argument("--password", default=None, help="密码（会出现在进程列表）")
+    pw_group.add_argument("--password-stdin", action="store_true", help="从终端读取密码（推荐）")
     sp.add_argument("--aad", default="")
     sp.set_defaults(func=lambda a: _cmd_symmetric(a, False))
 
     sp = sub.add_parser("stream-encrypt"); add_io(sp)
     sp.add_argument("--algo", required=True, choices=SUPPORTED_SYMMETRIC)
-    sp.add_argument("--password", required=True)
+    pw_group = sp.add_mutually_exclusive_group(required=True)
+    pw_group.add_argument("--password", default=None, help="密码（会出现在进程列表）")
+    pw_group.add_argument("--password-stdin", action="store_true", help="从终端读取密码（推荐）")
     sp.set_defaults(func=lambda a: _cmd_stream(a, True))
 
     sp = sub.add_parser("stream-decrypt"); add_io(sp)
     sp.add_argument("--algo", required=True, choices=SUPPORTED_SYMMETRIC)
-    sp.add_argument("--password", required=True)
+    pw_group = sp.add_mutually_exclusive_group(required=True)
+    pw_group.add_argument("--password", default=None, help="密码（会出现在进程列表）")
+    pw_group.add_argument("--password-stdin", action="store_true", help="从终端读取密码（推荐）")
     sp.set_defaults(func=lambda a: _cmd_stream(a, False))
 
     sp = sub.add_parser("hash")
@@ -255,14 +280,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--carrier", required=True)
     sp.add_argument("--outfile", required=True)
     sp.add_argument("--infile", required=True)
-    sp.add_argument("--password", required=True)
+    pw_group = sp.add_mutually_exclusive_group(required=True)
+    pw_group.add_argument("--password", default=None, help="密码（会出现在进程列表）")
+    pw_group.add_argument("--password-stdin", action="store_true", help="从终端读取密码（推荐）")
     sp.add_argument("--bit-depth", type=int, default=1)
     sp.set_defaults(func=_cmd_stego_hide)
 
     sp = sub.add_parser("stego-reveal")
     sp.add_argument("--infile", required=True)
     sp.add_argument("--outfile", required=True)
-    sp.add_argument("--password", required=True)
+    pw_group = sp.add_mutually_exclusive_group(required=True)
+    pw_group.add_argument("--password", default=None, help="密码（会出现在进程列表）")
+    pw_group.add_argument("--password-stdin", action="store_true", help="从终端读取密码（推荐）")
     sp.add_argument("--bit-depth", type=int, default=1)
     sp.set_defaults(func=_cmd_stego_reveal)
 
@@ -289,7 +318,9 @@ def build_parser() -> argparse.ArgumentParser:
     for verb, enc in (("cascade-encrypt", True), ("cascade-decrypt", False)):
         sp = sub.add_parser(verb); add_io(sp)
         sp.add_argument("--layers", default="AES-256-GCM,ChaCha20-Poly1305,Serpent-GCM")
-        sp.add_argument("--password", required=True)
+        pw_group = sp.add_mutually_exclusive_group(required=True)
+        pw_group.add_argument("--password", default=None, help="密码（会出现在进程列表）")
+        pw_group.add_argument("--password-stdin", action="store_true", help="从终端读取密码（推荐）")
         sp.set_defaults(func=lambda a, e=enc: _cmd_cascade(a, e))
 
     return p
@@ -298,6 +329,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # 确保 password_stdin 属性存在
+    if not hasattr(args, 'password_stdin'):
+        args.password_stdin = False
     try:
         args.func(args)
         return 0

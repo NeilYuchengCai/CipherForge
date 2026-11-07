@@ -23,16 +23,42 @@ if /i "%MODE%"=="3" (
     goto :eof
 )
 
-rem Use system Python with tkinter support
-set "PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python313\python.exe"
+rem Auto-detect a Python interpreter that has fastapi and uvicorn
+set "PYTHON="
 
-if not exist "%PYTHON%" (
-    echo Error: System Python not found!
-    echo Install fastapi and uvicorn: pip install fastapi uvicorn
-    pause
-    exit /b 1
+for %%p in (python python3 py) do (
+    for /f "delims=" %%i in ('where %%p 2^>nul') do (
+        "%%i" -c "import fastapi, uvicorn" >nul 2>&1
+        if not errorlevel 1 (
+            set "PYTHON=%%i"
+            goto :found
+        )
+    )
 )
 
+for %%d in (
+    "%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+    "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    "%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    "C:\Python313\python.exe"
+    "C:\Python312\python.exe"
+    "C:\Python311\python.exe"
+) do (
+    if exist %%d (
+        "%%d" -c "import fastapi, uvicorn" >nul 2>&1
+        if not errorlevel 1 (
+            set "PYTHON=%%d"
+            goto :found
+        )
+    )
+)
+
+echo Error: No Python with FastAPI/Uvicorn found!
+echo Install: pip install fastapi uvicorn
+pause
+exit /b 1
+
+:found
 echo Using: %PYTHON%
 echo.
 if /i "%MODE%"=="2" (

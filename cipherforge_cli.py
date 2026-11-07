@@ -64,7 +64,9 @@ def cmd_encrypt(args: list[str]) -> None:
         print("用法: encrypt <算法> <密码> <明文>")
         print(f"可用算法: {', '.join(SUPPORTED_SYMMETRIC)}")
         return
-    algo, password, plaintext = args[0], args[1], " ".join(args[2:])
+    algo = args[0]
+    password = args[1]
+    plaintext = " ".join(args[2:])
     try:
         cipher = SymmetricCipher(algo)
         ciphertext = cipher.encrypt(plaintext.encode(), password=password)
@@ -89,7 +91,8 @@ def cmd_decrypt(args: list[str]) -> None:
         print("用法: decrypt <算法> <密码> <密文B64>")
         print(f"可用算法: {', '.join(SUPPORTED_SYMMETRIC)}")
         return
-    algo, password = args[0], args[1]
+    algo = args[0]
+    password = args[1]
     ciphertext_b64 = " ".join(args[2:])
     try:
         cipher = SymmetricCipher(algo)
@@ -360,6 +363,12 @@ def process_command(line: str) -> bool:
     parts = line.split(maxsplit=1)
     cmd = parts[0].lower()
     args = parts[1].split() if len(parts) > 1 else []
+
+    # 对需要密码的命令，交互式提示输入
+    if cmd in ("encrypt", "decrypt", "cascade"):
+        if len(args) >= 2:
+            # 第二参数作为密码，交互式确认
+            args[1] = getpass.getpass(f"Enter password for {cmd}: ")
 
     if cmd in COMMANDS:
         try:

@@ -185,7 +185,7 @@ class UnifiedAEAD(SideChannelBase, SecureMemoryBase):
             raise
         except Exception as exc:  # 其他底层异常统一收敛为认证失败
             raise DecryptionFailedError(
-                detail=f"{type(exc).__name__}: {exc}",
+                detail="解密失败：内部错误。",
                 context={"算法": self.name},
             ) from exc
 
@@ -216,7 +216,7 @@ class _HazmatAEAD(UnifiedAEAD):
             return cipher.decrypt(nonce, ct_tag, aad)
         except Exception as exc:
             raise DecryptionFailedError(
-                detail=f"{type(exc).__name__}: {exc}",
+                detail="解密失败：内部错误。",
                 context={"算法": self.name},
             ) from exc
 
@@ -263,7 +263,7 @@ class XChaCha20Poly1305(_HazmatAEAD):
             raise
         except Exception as exc:
             raise DecryptionFailedError(
-                detail=f"{type(exc).__name__}: {exc}",
+                detail="解密失败：内部错误。",
                 context={"算法": self.name},
             ) from exc
 
@@ -303,14 +303,15 @@ class _CTR_HMAC_AEAD(UnifiedAEAD):
         return HMAC.new(key, b"CipherForge-SerpentTwofish-MAC-v1", digestmod=SHA256).digest()
 
     def _encrypt_core(self, key: bytes, nonce: bytes, pt: bytes, aad: bytes) -> bytes:
-        HMAC, SHA256 = _pycryptodome_serpent_twofish()[2], _pycryptodome_serpent_twofish()[3]
+        # 缓存 HMAC/SHA256 引用，避免每轮都重新导入
+        _, _, HMAC, SHA256, _ = _pycryptodome_serpent_twofish()
         ct = self._ctr_crypt(pt, key, nonce)
         mac_key = self._make_mac_key(key)
         mac = HMAC.new(mac_key, nonce + aad + ct, digestmod=SHA256).digest()
         return ct + mac[:TAG_BYTES]
 
     def _decrypt_core(self, key: bytes, nonce: bytes, ct_tag: bytes, aad: bytes) -> bytes:
-        HMAC, SHA256 = _pycryptodome_serpent_twofish()[2], _pycryptodome_serpent_twofish()[3]
+        _, _, HMAC, SHA256, _ = _pycryptodome_serpent_twofish()
         if len(ct_tag) < TAG_BYTES:
             raise DecryptionFailedError(
                 detail="密文过短，缺少认证标签。",
@@ -418,13 +419,13 @@ class SymmetricCipher:
         method = "argon2id" if self.config.get("kdf.default", "argon2id") == "argon2id" else "pbkdf2"
 
         salt = random_salt(self.config.get("symmetric.salt_bytes", 16))
-        derived = kd.derive(password, salt=salt, length=self._aead.key_size,
+        derived = kd.derive_secure(password, salt=salt, length=self._aead.key_size,
                             method=method, params=params if method == "argon2id" else None)
         try:
-            self._aead.set_key(derived)
+            self._aead.set_key(derived.view())
             ct = self._aead.encrypt(plaintext, aad=aad)
         finally:
-            wipe_bytearray(derived)
+            derived.zeroize()
             self._aead.close()
 
         algo_bytes = self.algorithm.encode("utf-8")
@@ -498,15 +499,15 @@ class SymmetricCipher:
         ct = blob[hdr["ct_offset"]:]
 
         kd = KeyDeriver(self.config)
-        derived = kd.derive(
+        derived = kd.derive_secure(
             password, salt=hdr["salt"], length=hdr["length"],
             method=hdr["method"], params=hdr["params"],
         )
         try:
-            self._aead.set_key(derived)
+            self._aead.set_key(derived.view())
             return self._aead.decrypt(ct, aad=aad)
         finally:
-            wipe_bytearray(derived)
+            derived.zeroize()
             self._aead.close()
 
 
@@ -579,18 +580,18 @@ class StreamCipher:
         # 先读头取 salt、算法与 KDF 参数
         header = self._read_header(src)
         kd = KeyDeriver(self.config)
-        key = kd.derive(
+        key = kd.derive_secure(
             password, salt=header["salt"], length=header["length"],
             method=header["method"], params=header["params"],
         )
         try:
-            self._aead.set_key(key)
+            self._aead.set_key(key.view())
             return self._run(
                 src, dst, key=None, salt=None, progress=progress,
                 encrypting=False, header=header,
             )
         finally:
-            wipe_bytearray(key)
+            key.zeroize()
             self._aead.close()
 
     # ------------------------------------------------------------ 头

@@ -44,6 +44,7 @@ from ..core.errors import (
     NoHiddenDataError,
     CarrierTooSmallError,
 )
+from ..core.memory import SecureBytes
 from ..core.rng import random_nonce, random_salt
 
 __all__ = ["LSBSteganography", "lsb_capacity"]
@@ -73,11 +74,15 @@ def lsb_capacity(pixels_bytes: int, bit_depth: int) -> int:
 # ----------------------------------------------------------------------
 def _encrypt_payload(data: bytes, password: str) -> bytes:
     salt = random_salt(16)
-    key = HKDF(
+    key_bytes = HKDF(
         algorithm=hashes.SHA256(), length=32, salt=salt, info=_INFO
     ).derive(password.encode("utf-8"))
-    nonce = random_nonce(12)
-    ct = AESGCM(key).encrypt(nonce, data, None)
+    key = SecureBytes(key_bytes)
+    try:
+        nonce = random_nonce(12)
+        ct = AESGCM(key.view()).encrypt(nonce, data, None)
+    finally:
+        key.zeroize()
     # 自包含密文 = salt(16) || nonce(12) || ct(tag)
     return salt + nonce + ct
 
@@ -86,13 +91,16 @@ def _decrypt_payload(blob: bytes, password: str) -> bytes:
     if len(blob) < 16 + 12 + 16:
         raise NoHiddenDataError()
     salt, nonce, ct = blob[:16], blob[16:28], blob[28:]
-    key = HKDF(
+    key_bytes = HKDF(
         algorithm=hashes.SHA256(), length=32, salt=salt, info=_INFO
     ).derive(password.encode("utf-8"))
+    key = SecureBytes(key_bytes)
     try:
-        return AESGCM(key).decrypt(nonce, ct, None)
+        return AESGCM(key.view()).decrypt(nonce, ct, None)
     except Exception as exc:  # GCM 认证失败：口令错误或数据被破坏
         raise NoHiddenDataError() from exc
+    finally:
+        key.zeroize()
 
 
 # ----------------------------------------------------------------------

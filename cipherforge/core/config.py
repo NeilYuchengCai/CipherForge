@@ -546,7 +546,7 @@ def load_config(path: str | Path | None = None, *, apply_scaling: bool = True) -
             raise ConfigError(
                 f"配置文件 {candidate.name} 解析失败。",
                 hint="请检查 YAML 缩进与引号是否配对；也可删除该文件以使用默认配置。",
-                detail=f"{type(exc).__name__}: {exc}",
+                detail="配置文件格式错误，无法解析。",
             ) from exc
 
     merged = _deep_merge(DEFAULT_CONFIG, user_data)

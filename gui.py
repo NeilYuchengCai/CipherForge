@@ -13,13 +13,23 @@ CipherForge — 桌面级密码学工具箱
 from __future__ import annotations
 
 import base64
+import sys
 import hashlib
 import math
 import secrets
 import string
 import threading
-import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
+try:
+    import tkinter as tk
+    from tkinter import ttk, scrolledtext, messagebox, filedialog
+except ImportError:
+    sys.stderr.write(
+        "\n[CipherForge] 无法启动图形界面：当前 Python 缺少 tkinter 组件。\n"
+        "  解决方案：\n"
+        "    1) 安装包含 Tk 的 Python（Windows 官方安装包需勾选 tcl/tk 组件）；\n"
+        "    2) 或使用命令行版本：python -m cipherforge.cli --help\n\n"
+    )
+    sys.exit(1)
 
 try:
     import ttkbootstrap as tb  # type: ignore[import-untyped]
@@ -180,6 +190,11 @@ class BaseApp(tk.Tk):
                                                     bg="#252526", fg="#6a9955",
                                                     font=("Consolas", 10))
         self._sym_output.pack(fill="both", expand=True, pady=8)
+        copy_frame = tk.Frame(body, bg="#1e1e1e")
+        copy_frame.pack(fill="x", pady=(0, 8))
+        tk.Button(copy_frame, text="复制结果", width=10,
+                  command=lambda w=self._sym_output: self._copy_text(w),
+                  bg="#6c757d", fg="#fff", font=("Microsoft YaHei UI", 9)).pack(side="right")
     
     def _do_sym_encrypt(self) -> None:
         try:
@@ -197,7 +212,7 @@ class BaseApp(tk.Tk):
             self._sym_output.delete("1.0", "end")
             self._sym_output.insert("1.0", base64.b64encode(result).decode())
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
     
     def _do_sym_decrypt(self) -> None:
         try:
@@ -211,11 +226,16 @@ class BaseApp(tk.Tk):
                 return
             algo = self._sym_algo_var.get()
             cipher = SymmetricCipher(algo)
-            result = cipher.decrypt(base64.b64decode(data_b64), password=password)
+            try:
+                data = base64.b64decode(data_b64)
+            except (ValueError, base64.binascii.Error):
+                messagebox.showerror("错误", "输入的密文不是有效的 Base64 编码，请检查后重试。")
+                return
+            result = cipher.decrypt(data, password=password)
             self._sym_output.delete("1.0", "end")
             self._sym_output.insert("1.0", result.decode())
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
     
     def _clear_sym(self) -> None:
         self._sym_input.delete("1.0", "end")
@@ -275,7 +295,7 @@ class BaseApp(tk.Tk):
             cipher.encrypt_stream(src, dst, password=password)
             self._strm_status.config(text=f"加密完成: {dst}")
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
     
     def _do_strm_decrypt(self) -> None:
         try:
@@ -296,7 +316,7 @@ class BaseApp(tk.Tk):
             cipher.decrypt_stream(src, dst, password=password)
             self._strm_status.config(text=f"解密完成: {dst}")
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
     
     def _build_哈希_Pepper(self, frame: tk.Frame) -> None:
         """哈希模块"""
@@ -333,6 +353,11 @@ class BaseApp(tk.Tk):
                                                      bg="#252526", fg="#6a9955",
                                                      font=("Consolas", 10))
         self._hash_output.pack(fill="both", expand=True, pady=8)
+        copy_frame = tk.Frame(body, bg="#1e1e1e")
+        copy_frame.pack(fill="x", pady=(0, 8))
+        tk.Button(copy_frame, text="复制结果", width=10,
+                  command=lambda w=self._hash_output: self._copy_text(w),
+                  bg="#6c757d", fg="#fff", font=("Microsoft YaHei UI", 9)).pack(side="right")
     
     def _do_hash(self) -> None:
         try:
@@ -344,7 +369,7 @@ class BaseApp(tk.Tk):
             self._hash_output.delete("1.0", "end")
             self._hash_output.insert("1.0", result)
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
     
     def _do_hash_verify(self) -> None:
         try:
@@ -359,7 +384,7 @@ class BaseApp(tk.Tk):
             ok = engine.verify(data, expected, self._hash_algo_var.get(), pepper=pepper_bytes)
             messagebox.showinfo("校验结果", "✓ 匹配" if ok else "✗ 不匹配")
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
 
     def _build_密码生成(self, frame: tk.Frame) -> None:
         """密码生成模块"""
@@ -412,7 +437,7 @@ class BaseApp(tk.Tk):
             self._pg_result.config(text=pwd)
             self._pg_entropy.config(text=f"熵：{bits:.1f} 比特")
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
     
     def _build_Shamir_共享(self, frame: tk.Frame) -> None:
         """Shamir 共享模块"""
@@ -450,6 +475,11 @@ class BaseApp(tk.Tk):
                                                      bg="#252526", fg="#6a9955",
                                                      font=("Consolas", 10))
         self._sham_output.pack(fill="both", expand=True, pady=8)
+        copy_frame = tk.Frame(body, bg="#1e1e1e")
+        copy_frame.pack(fill="x", pady=(0, 8))
+        tk.Button(copy_frame, text="复制结果", width=10,
+                  command=lambda w=self._sham_output: self._copy_text(w),
+                  bg="#6c757d", fg="#fff", font=("Microsoft YaHei UI", 9)).pack(side="right")
     
     def _do_sham_split(self) -> None:
         try:
@@ -464,7 +494,7 @@ class BaseApp(tk.Tk):
             for i, s in enumerate(shares, 1):
                 self._sham_output.insert("end", f"分片 {i}: {s}\n")
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
     
     def _do_sham_combine(self) -> None:
         try:
@@ -479,7 +509,7 @@ class BaseApp(tk.Tk):
             self._sham_output.delete("1.0", "end")
             self._sham_output.insert("1.0", result.decode())
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
 
     def _build_LSB_隐写(self, frame: tk.Frame) -> None:
         """LSB 隐写模块"""
@@ -538,7 +568,7 @@ class BaseApp(tk.Tk):
             steg.hide(data, carrier, out_path, password=password)
             self._steg_status.config(text=f"隐藏完成: {out_path}")
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
     
     def _do_steg_reveal(self) -> None:
         try:
@@ -553,7 +583,7 @@ class BaseApp(tk.Tk):
             result = steg.reveal(stego, password=password)
             messagebox.showinfo("结果", result.decode())
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
 
     def _build_级联加密(self, frame: tk.Frame) -> None:
         """级联加密模块 — 沙盒式自由堆砌 UI（拖拽排序层）"""
@@ -569,6 +599,7 @@ class BaseApp(tk.Tk):
         top_pane.pack(fill="both", expand=True, pady=(0, 8))
 
         self._cascade_order: list[int] = []
+        self._layer_passwords: list[str] = []
 
         left = tk.Frame(top_pane, bg="#1e1e1e", width=200)
         left.pack(side="left", fill="y", padx=(0, 12))
@@ -633,6 +664,11 @@ class BaseApp(tk.Tk):
                                                          bg="#252526", fg="#6a9955",
                                                          font=("Consolas", 10))
         self._cascade_output.pack(fill="both", expand=True, pady=8)
+        copy_frame = tk.Frame(body, bg="#1e1e1e")
+        copy_frame.pack(fill="x", pady=(0, 8))
+        tk.Button(copy_frame, text="复制结果", width=10,
+                  command=lambda w=self._cascade_output: self._copy_text(w),
+                  bg="#6c757d", fg="#fff", font=("Microsoft YaHei UI", 9)).pack(side="right")
 
     def _on_layer_configure(self, event) -> None:
         self._layer_canvas.configure(scrollregion=self._layer_canvas.bbox("all"))
@@ -644,6 +680,7 @@ class BaseApp(tk.Tk):
         idx = sel[0]
         algo = SUPPORTED_SYMMETRIC[idx]
         self._cascade_order.append(idx)
+        self._layer_passwords.append("")
         self._refresh_layer_list()
 
     def _move_layer(self, pos: int, direction: int) -> None:
@@ -653,6 +690,8 @@ class BaseApp(tk.Tk):
             return
         self._cascade_order[pos], self._cascade_order[new_pos] = \
             self._cascade_order[new_pos], self._cascade_order[pos]
+        self._layer_passwords[pos], self._layer_passwords[new_pos] = \
+            self._layer_passwords[new_pos], self._layer_passwords[pos]
         self._refresh_layer_list()
 
     def _refresh_layer_list(self) -> None:
@@ -665,8 +704,8 @@ class BaseApp(tk.Tk):
                 self._layer_inner,
                 text=f"{pos+1}. {algo}",
                 on_remove=lambda p=pos: self._remove_layer(p),
-                on_move_up=lambda p=pos: self._move_layer(p, -1) if pos > 0 else None,
-                on_move_down=lambda p=pos: self._move_layer(p, 1) if pos < len(self._cascade_order) - 1 else None
+                on_move_up=lambda p=pos: self._move_layer(p, -1),
+                on_move_down=lambda p=pos: self._move_layer(p, 1),
             )
             wf.pack(fill="x", pady=2)
             self._layer_widgets.append(wf)
@@ -675,12 +714,16 @@ class BaseApp(tk.Tk):
 
     def _remove_layer(self, pos: int) -> None:
         self._cascade_order.pop(pos)
+        self._layer_passwords.pop(pos)
         self._refresh_layer_list()
 
     def _show_layer_pw_dialog(self) -> None:
         if not self._cascade_order:
             messagebox.showwarning("提示", "请先添加加密层")
             return
+        # 确保层密码列表与层序保持同步（防御性补齐）
+        while len(self._layer_passwords) < len(self._cascade_order):
+            self._layer_passwords.append("")
         pw_win = tk.Toplevel(self)
         pw_win.title("层密码配置")
         pw_win.geometry("420x320")
@@ -695,11 +738,29 @@ class BaseApp(tk.Tk):
             row.pack(fill="x", padx=16, pady=4)
             tk.Label(row, text=f"层{i+1} ({algo}):", font=("Microsoft YaHei UI", 9),
                      fg="#d4d4d4", bg="#1e1e1e", width=20).pack(side="left")
-            var = tk.StringVar()
+            var = tk.StringVar(value=self._layer_passwords[i])
             tk.Entry(row, textvariable=var, show="*", width=20).pack(side="left", padx=4)
             self._layer_pw_vars.append(var)
-        tk.Button(pw_win, text="确定", command=pw_win.destroy,
+
+        def _save_and_close() -> None:
+            for i, var in enumerate(self._layer_pw_vars):
+                self._layer_passwords[i] = var.get()
+            pw_win.destroy()
+
+        tk.Button(pw_win, text="确定", command=_save_and_close,
                   bg="#4caf50", fg="#fff", font=("Microsoft YaHei UI", 10)).pack(pady=12)
+
+    def _copy_text(self, widget) -> None:
+        """将指定文本框内容复制到系统剪贴板。"""
+        try:
+            text = widget.get("1.0", "end-1c")
+            if not text:
+                return
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.update_idletasks()  # 确保剪贴板写入立即生效
+        except Exception as exc:
+            messagebox.showerror("错误", "复制失败：请检查剪贴板权限。")
 
     def _clear_cascade(self) -> None:
         self._cascade_input.delete("1.0", "end")
@@ -720,11 +781,14 @@ class BaseApp(tk.Tk):
                 messagebox.showerror("错误", "请至少选择一种算法")
                 return
             ce = CascadeEngine(algorithms=layers)
-            result = ce.encrypt(data, password=password)
+            layer_pws = list(self._layer_passwords)
+            while len(layer_pws) < len(layers):
+                layer_pws.append("")
+            result = ce.encrypt(data, password=password, layer_passwords=layer_pws)
             self._cascade_output.delete("1.0", "end")
             self._cascade_output.insert("1.0", base64.b64encode(result).decode())
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
 
     def _do_cascade_decrypt(self) -> None:
         try:
@@ -737,11 +801,17 @@ class BaseApp(tk.Tk):
                 messagebox.showerror("错误", "请输入要解密的内容")
                 return
             ce = CascadeEngine()
-            result = ce.decrypt(base64.b64decode(data_b64), password=password)
+            try:
+                blob = base64.b64decode(data_b64)
+            except (ValueError, base64.binascii.Error):
+                messagebox.showerror("错误", "输入的密文不是有效的 Base64 编码，请检查后重试。")
+                return
+            result = ce.decrypt(blob, password=password,
+                                layer_passwords=list(self._layer_passwords))
             self._cascade_output.delete("1.0", "end")
             self._cascade_output.insert("1.0", result.decode())
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
 
     @staticmethod
     def run() -> None:
@@ -793,6 +863,11 @@ class BaseApp(tk.Tk):
                                                    bg="#252526", fg="#6a9955",
                                                    font=("Consolas", 10))
         self._pq_output.pack(fill="both", expand=True, pady=8)
+        copy_frame = tk.Frame(body, bg="#1e1e1e")
+        copy_frame.pack(fill="x", pady=(0, 8))
+        tk.Button(copy_frame, text="复制结果", width=10,
+                  command=lambda w=self._pq_output: self._copy_text(w),
+                  bg="#6c757d", fg="#fff", font=("Microsoft YaHei UI", 9)).pack(side="right")
         self._pq_sk_var = tk.StringVar(value="")
 
     def _do_pq_genkey(self) -> None:
@@ -803,7 +878,7 @@ class BaseApp(tk.Tk):
             self._pq_output.delete("1.0", "end")
             self._pq_output.insert("1.0", f"公钥长度: {len(pk)} 字节\n私钥已生成（Base64）")
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
 
     def _do_pq_sign(self) -> None:
         try:
@@ -820,7 +895,7 @@ class BaseApp(tk.Tk):
             self._pq_output.delete("1.0", "end")
             self._pq_output.insert("1.0", f"签名长度: {len(bundle.signature)} 字节\n算法: {bundle.algorithm}")
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
 
     def _do_pq_verify(self) -> None:
         try:
@@ -830,7 +905,7 @@ class BaseApp(tk.Tk):
                 return
             messagebox.showinfo("提示", "请在完整版本中使用签名包进行验证")
         except Exception as exc:
-            messagebox.showerror("错误", str(exc))
+            messagebox.showerror("错误", "操作失败，请检查输入后重试。")
 
 
 # ======================================================================

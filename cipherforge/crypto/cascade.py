@@ -73,6 +73,8 @@ _MAGIC = b"CFCS"          # CipherForge Cascade
 _VERSION = 2              # v2: 支持多重密码和每层独立盐
 _HKDF_SALT = b"CipherForge-Cascade-v2"
 _SEED_CHAIN = b"\x00" * 32  # 链首前缀（公开常量）
+# 主密码组合的固定盐前缀（公开常量，保证确定性派生）
+_MASTER_SALT_PREFIX = b"CipherForge-Cascade-MasterSalt-V1"
 
 # 盐长度（每层）
 _LAYER_SALT_BYTES = 16
@@ -88,15 +90,32 @@ def _hkdf(master: bytes, info: bytes, length: int = 32) -> bytes:
 
 
 def _combine_passwords(*passwords: str) -> bytes:
-    """将多个密码组合成一个 master key（HMAC 链式组合）。"""
+    """将多个密码组合成一个 master key（Argon2id 链式派生）。
+
+    每个密码步骤使用固定盐前缀 + 步骤序号，保证确定性输出：
+    相同密码组合总是产生相同的 master key，便于加密/解密对称操作。
+
+    相比原来的 SHA-512 链式组合，Argon2id 提供内存硬化保护，
+    有效抵御 GPU/ASIC 离线暴力破解。
+    """
     if not passwords:
         raise ValidationError("至少需要一个密码。")
+    from argon2.low_level import Type, hash_secret_raw
     result = b""
-    for pw in passwords:
+    for i, pw in enumerate(passwords):
         if not pw:
             continue
-        result = hashlib.sha512(result + pw.encode("utf-8")).digest()
-    return result[:_MASTER_KEY_BYTES]
+        salt = _MASTER_SALT_PREFIX + struct.pack("<I", i)
+        result = hash_secret_raw(
+            secret=result + pw.encode("utf-8"),
+            salt=salt,
+            time_cost=1,
+            memory_cost=64,
+            parallelism=1,
+            hash_len=_MASTER_KEY_BYTES,
+            type=Type.ID,
+        )
+    return result
 
 
 class CascadeEngine:
